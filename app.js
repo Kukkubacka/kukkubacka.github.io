@@ -9,6 +9,14 @@
   const DEFAULT_POINTS = { 4: 32, 8: 32, 12: 20, 16: 16 };
   const MAX_PLAYERS = 16;
   const MAX_COURTS = 4;
+  /** Final round pairings within each group of four in the ranking (indices 0..3 = places 1..4). */
+  const FINAL_ORDERS = {
+    '14-23': { a: [0, 3], b: [1, 2], label: '1 & 4 vs 2 & 3', notice: '1 + 4 vs 2 + 3, 5 + 8 vs 6 + 7' },
+    '13-24': { a: [0, 2], b: [1, 3], label: '1 & 3 vs 2 & 4', notice: '1 + 3 vs 2 + 4, 5 + 7 vs 6 + 8' },
+  };
+  const DEFAULT_FINAL_ORDER = '14-23';
+  /** Final order of the tournament; tournaments saved before the option existed use the default. */
+  const finalOrder = () => FINAL_ORDERS[state.finalOrder] || FINAL_ORDERS[DEFAULT_FINAL_ORDER];
 
   /** Persistent tournament state (null when no tournament has been started). */
   let state = load();
@@ -58,6 +66,7 @@
       n,
       points: DEFAULT_POINTS[n],
       shuffle: true,
+      finalOrder: DEFAULT_FINAL_ORDER,
       players: new Array(MAX_PLAYERS).fill(''),
       courts: new Array(MAX_COURTS).fill(''),
     };
@@ -73,6 +82,7 @@
       version: 1,
       n,
       points: d.points,
+      finalOrder: d.finalOrder,
       players: d.players.slice(0, n).map((p, i) => effectivePlayerName(p, i)),
       courts: d.courts.slice(0, n / 4).map((c, i) => c.trim() || defaultCourtName(i)),
       template, // the n-1 regular rounds; re-used when play continues
@@ -146,13 +156,17 @@
       (y.pf - x.pf) || (y.w - x.w) || ((y.pf - y.pa) - (x.pf - x.pa)) || (x.i - y.i));
   }
 
-  /** Final round: per group of four in the ranking, 1+4 vs 2+3 (5+8 vs 6+7, ...). */
+  /**
+   * Final round: per group of four in the ranking, either 1+4 vs 2+3 (5+8 vs 6+7, ...)
+   * or 1+3 vs 2+4 (5+7 vs 6+8, ...), as chosen in the setup.
+   */
   function computeFinal(i) {
     const rank = ranking(i).map(s => s.i);
+    const o = finalOrder();
     const matches = [];
     for (let c = 0; c < state.n / 4; c++) {
       const g = rank.slice(c * 4, c * 4 + 4);
-      matches.push({ court: c, a: [g[0], g[3]], b: [g[1], g[2]], sa: null, sb: null });
+      matches.push({ court: c, a: o.a.map(k => g[k]), b: o.b.map(k => g[k]), sa: null, sb: null });
     }
     return matches;
   }
@@ -240,6 +254,7 @@
     const d = ui.draft;
     const editing = ui.mode === 'edit';
     const pointsLocked = editing && anyScores();
+    const orderLocked = editing && hasFinal();
     const courts = d.n / 4;
 
     app.innerHTML = `
@@ -257,6 +272,13 @@
             <label for="points">Points per match</label>
             <input id="points" class="text-input points-input" inputmode="numeric" value="${d.points}"
               ${pointsLocked ? 'disabled title="Points cannot be changed after scores have been entered"' : ''}>
+          </div>
+          <div class="field">
+            <span class="label">Final round</span>
+            <div class="segmented" role="group" aria-label="Final round pairings">
+              ${Object.entries(FINAL_ORDERS).map(([key, o]) => `<button type="button" data-action="final-order" data-order="${key}"
+                  class="${key === d.finalOrder ? 'active' : ''}" ${orderLocked ? 'disabled title="The final round order cannot be changed after the final round has been started"' : ''}>${o.label}</button>`).join('')}
+            </div>
           </div>
           <div class="field"><span class="label">Courts</span><div class="static-value">${courts}</div></div>
           ${editing ? '' : `
@@ -378,26 +400,30 @@
    *  - last extra round:                    "Next extra round" or "Start final round"
    *    ("Start final round" is shown in every extra round, enabled once the round is complete)
    *  - final round:                         "End tournament"
+   * Every completed round also offers "End tournament", so play can be stopped at any time.
    */
   function roundActions(i) {
     const r = state.rounds[i];
     const done = roundDone(i);
     const isLast = i === state.rounds.length - 1;
     const wrap = (inner, hint) => `<div class="actions">${hint ? `<span class="hint actions-hint">${hint}</span>` : ''}${inner}</div>`;
+    const endBtn = '<button class="btn" id="end-tournament" data-action="end-tournament">End tournament</button>';
 
     if (r.kind === 'final') {
       return done ? wrap('<button class="btn primary" id="end-tournament" data-action="end-tournament">End tournament</button>') : '';
     }
     if (!isLast) {
-      return done ? wrap(`<button class="btn primary" id="next-round" data-action="next-round">Next round: ${roundLabel(i + 1)} →</button>`) : '';
+      return done ? wrap(`${endBtn}<button class="btn primary" id="next-round" data-action="next-round">Next round: ${roundLabel(i + 1)} →</button>`) : '';
     }
     if (r.extra) {
       return wrap(`
+        ${done ? endBtn : ''}
         ${done ? `<button class="btn" id="next-round" data-action="next-round">Next extra round →</button>` : ''}
         <button class="btn primary" id="start-final" data-action="start-final" ${done ? '' : 'disabled'}>Start final round</button>`,
         done ? '' : 'Enter all scores of this round to start the final.');
     }
     return done ? wrap(`
+        ${endBtn}
         <button class="btn" id="continue" data-action="continue">Continue playing (restart from round 1)</button>
         <button class="btn primary" id="start-final" data-action="start-final">Start final round →</button>`) : '';
   }
@@ -424,7 +450,7 @@
     let notice = '';
     if (r.kind === 'final' && !r.matches) {
       notice = editable
-        ? '<p class="notice">Final pairings from the standings: 1 + 4 vs 2 + 3, 5 + 8 vs 6 + 7, … They are fixed once the first score is entered.</p>'
+        ? `<p class="notice">Final pairings from the standings: ${finalOrder().notice}, … They are fixed once the first score is entered.</p>`
         : '<p class="notice">Provisional pairings – the final is set from the standings once all previous rounds are complete.</p>';
     }
 
@@ -526,6 +552,10 @@
     const action = btn.dataset.action;
 
     switch (action) {
+      case 'final-order':
+        ui.draft.finalOrder = btn.dataset.order;
+        render();
+        break;
       case 'count': {
         const n = +btn.dataset.n;
         ui.draft.n = n;
@@ -544,7 +574,7 @@
       }
       case 'edit':
         ui.draft = {
-          n: state.n, points: state.points, shuffle: false,
+          n: state.n, points: state.points, shuffle: false, finalOrder: state.finalOrder || DEFAULT_FINAL_ORDER,
           players: Array.from({ length: MAX_PLAYERS }, (_, i) => customName(state.players[i], defaultPlayerName(i))),
           courts: Array.from({ length: MAX_COURTS }, (_, i) => customName(state.courts[i], defaultCourtName(i))),
         };
@@ -557,6 +587,7 @@
         state.players = ui.draft.players.slice(0, state.n).map((p, i) => effectivePlayerName(p, i));
         state.courts = ui.draft.courts.slice(0, state.n / 4).map((c, i) => c.trim() || defaultCourtName(i));
         if (!anyScores()) state.points = ui.draft.points;
+        if (!hasFinal()) state.finalOrder = ui.draft.finalOrder;
         save();
         ui.mode = 'play';
         render();
