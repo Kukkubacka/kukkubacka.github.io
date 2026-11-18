@@ -17,9 +17,16 @@ Open `index.html` in a browser. All data is saved in the browser's `localStorage
   - After the last scheduled round you can choose **Continue playing** or **Start final round**.
     Continuing adds extra rounds that repeat the schedule from round 1.
   - Every extra round has **Start final round**, enabled once that round is complete, and **Next extra round**.
+  - **End tournament** is shown under every completed round, so the tournament can be stopped at any time.
+    Games without a score are left out of the results.
   - After the final, **End tournament** shows the results: podium, final standings and every played game with its pairs and score.
     It also offers Print and Back to scoring.
-- The final round is built from the standings: 1 + 4 vs 2 + 3, 5 + 8 vs 6 + 7, and so on. Its pairings are fixed once the first final score is entered.
+- The final round is built from the standings. Its pairing order is chosen in the setup (**Final round**):
+  - **1 & 4 vs 2 & 3** (default): 1 + 4 vs 2 + 3, 5 + 8 vs 6 + 7, and so on.
+  - **1 & 3 vs 2 & 4**: 1 + 3 vs 2 + 4, 5 + 7 vs 6 + 8, and so on.
+
+  The order can be changed under **Edit names** until **Start final round** is pressed; after that it is locked.
+  The final's players are fixed once the first final score is entered.
 - Enter the score for either pair; the other pair gets `points − score`. Anything that isn't a whole number from 0 to `points` is rejected.
 - Pairings with score entry on the left, live standings on the right (points, matches, W-D-L, +/-).
   Ties in the standings are broken by wins, then point difference.
@@ -29,6 +36,50 @@ Open `index.html` in a browser. All data is saved in the browser's `localStorage
 | File | Purpose |
 | --- | --- |
 | `index.html` | Page shell |
+| `padel.png` | Icon for the browser tab and the home-screen shortcut |
 | `styles.css` | Styling (light and dark mode) |
 | `schedules.js` | Pre-computed, verified whist-tournament schedules plus court balancing |
 | `app.js` | Setup, scoring, standings, final round, persistence |
+| `americano.robot` | Robot Framework UI tests (SeleniumLibrary) |
+
+## Robot Framework tests
+
+`americano.robot` plays a full tournament in Chrome for 4, 8, 12 and 16 players, each with and without the final round (8 tests).
+Two more tests pick the number of players at random and play 3 extra rounds ("Continue playing") after the schedule, one with and one without the final (10 tests in total).
+The randomly selected player count is shown as the test's documentation in the log and report.
+Each test:
+
+- enters random scores for one pair per match and checks that the app fills in the other pair's score
+- checks the standings totals and saves a screenshot
+- reads every played game from the results table
+- verifies that no two players partner each other twice and that every player meets every other player exactly twice as an opponent (scheduled rounds only)
+- in the extra-round tests, verifies that each extra round repeats the pairings of the matching scheduled round
+
+### Requirements
+
+- Python 3.8+ with Robot Framework and SeleniumLibrary:
+
+  ```
+  pip install robotframework robotframework-seleniumlibrary
+  ```
+
+- Google Chrome. SeleniumLibrary 6+ downloads a matching ChromeDriver automatically through Selenium Manager.
+  A `chromedriver` on `PATH` also works.
+
+### Run
+
+From the project folder:
+
+```
+python -m robot --outputdir results americano.robot
+```
+
+Run a single test, or select the browser:
+
+```
+python -m robot --outputdir results --test "Americano 8 Players With Final" americano.robot
+python -m robot --outputdir results --variable BROWSER:firefox americano.robot
+```
+
+Open `results/log.html` to see the logged match rows, standings, games table and screenshots.
+`results/report.html` has the pass/fail summary.
