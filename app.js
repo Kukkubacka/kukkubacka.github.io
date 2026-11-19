@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'padel-americano-v1';
+  const STORAGE_KEY = 'americano-app-v1';
   const PLAYER_COUNTS = [4, 8, 12, 16];
   const DEFAULT_POINTS = { 4: 32, 8: 32, 12: 20, 16: 16 };
   const MAX_PLAYERS = 16;
@@ -49,6 +49,13 @@
   function customName(name, def) { return name && name !== def ? name : ''; }
   const playerName = i => state.players[i];
   const pairName = pair => `${esc(playerName(pair[0]))}<span class="amp"> &amp; </span>${esc(playerName(pair[1]))}`;
+  /**
+   * Pair for the scoring table: both names on one line when they fit, otherwise one name per
+   * line; a name longer than the column is cut with an ellipsis (full pair in the tooltip).
+   */
+  const pairNames = pair => `<div class="pair-names" title="${esc(playerName(pair[0]) + ' & ' + playerName(pair[1]))}">
+      <span class="pn"><span class="pn-text">${esc(playerName(pair[0]))}</span><span class="amp">&amp;</span></span>
+      <span class="pn"><span class="pn-text">${esc(playerName(pair[1]))}</span></span></div>`;
 
   function shuffled(n) {
     const a = [...Array(n).keys()];
@@ -464,9 +471,9 @@
           aria-label="${esc(state.courts[m.court])}, score for ${side === 'a' ? 'left' : 'right'} pair">`;
       return `<tr>
           <td class="court">${esc(state.courts[m.court])}</td>
-          <td class="pair ${aCls}">${pairName(m.a)}</td>
+          <td class="pair ${aCls}">${pairNames(m.a)}</td>
           <td class="scores">${inp('a', m.sa)}<span class="dash">–</span>${inp('b', m.sb)}</td>
-          <td class="pair right ${bCls}">${pairName(m.b)}</td>
+          <td class="pair right ${bCls}">${pairNames(m.b)}</td>
         </tr>`;
     }).join('');
 
@@ -474,7 +481,8 @@
       <div class="round-block">
         <div class="round-title"><h3>${roundLabel(i)}</h3>${badge}${cycle}</div>
         ${notice}
-        <table class="match-table">
+        <table class="match-table scoring">
+          <colgroup><col class="col-court"><col><col class="col-scores"><col></colgroup>
           <thead><tr><th>Court</th><th>Pair</th><th class="center">Score</th><th class="num">Pair</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -524,6 +532,13 @@
       </div>`;
   }
 
+  /**
+   * Standings column header with a tooltip. It opens on hover, and on keyboard focus or tap
+   * (tabindex makes the header focusable, so it also works on touch screens).
+   */
+  const tipHeader = (label, tip) => `<th class="num"><span class="tip" tabindex="0" aria-label="${esc(label)}: ${esc(tip)}"
+      data-tip="${esc(tip)}">${esc(label)}</span></th>`;
+
   function standingsTable() {
     const rank = ranking(state.rounds.length);
     const rows = rank.map((s, k) => {
@@ -538,11 +553,17 @@
         </tr>`;
     }).join('');
     return `<table class="standings">
-        <thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num" title="Matches played">M</th>
-          <th class="num" title="Won-Drawn-Lost">W-D-L</th><th class="num" title="Point difference">+/-</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th>
+          ${tipHeader('Pts', "Points: total of the points scored by the player's pair in each match")}
+          ${tipHeader('M', 'Matches played')}
+          ${tipHeader('W-D-L', 'Won – drawn – lost matches')}
+          ${tipHeader('+/-', 'Point difference: points scored minus points conceded')}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p class="hint">${state.points} points per match · ties broken by wins, then point difference.</p>`;
+      <p class="hint">${state.points} points per match · ties broken by wins, then point difference.</p>
+      <div class="storage-actions">
+        <button class="btn small danger" id="clear-storage" data-action="clear-storage">Clear saved data</button>
+      </div>`;
   }
 
   // ------------------------------------------------------------------ events
@@ -634,6 +655,16 @@
         state.ended = false;
         save();
         ui.selected = null;
+        render();
+        break;
+      case 'clear-storage':
+        if (!confirm('Are you sure you want to clear the saved data?\n\n'
+          + 'The current tournament, its players and all scores will be deleted. This cannot be undone.')) return;
+        try { localStorage.removeItem(STORAGE_KEY); sessionStorage.clear(); } catch (e) { /* storage unavailable */ }
+        state = null;
+        ui.mode = 'setup'; ui.selected = null; ui.showAll = false;
+        ui.draft = newDraft();
+        window.scrollTo(0, 0);
         render();
         break;
       case 'print':

@@ -27,37 +27,55 @@ ${CONTINUE_BUTTON}      id:continue
 ${MATCH_ROWS}           //table[contains(@class,'match-table')]/tbody/tr
 ${STANDINGS_ROWS}       //table[contains(@class,'standings')]/tbody/tr
 ${ROUND_BLOCKS}         //div[contains(@class,'round-block')]
+@{FINNISH_NAMES}=       Juhani    Mikael    Antti     Ville
+...                     Juho      Pekka     Oskari    Eero
+...                     Laura     Maria     Anna      Emilia
+...                     Sofia     Aino      Sanni     Elina
 
-
-*** Test Cases ***                                      PLAYERS    FINAL ROUND    EXTRA ROUNDS
-Americano 4 Players With Final          4          ${TRUE}
-Americano 8 Players With Final          8          ${TRUE}
-Americano 12 Players With Final         12         ${TRUE}
-Americano 16 Players With Final         16         ${TRUE}
-Americano 4 Players Without Final       4          ${FALSE}
-Americano 8 Players Without Final       8          ${FALSE}
-Americano 12 Players Without Final      12         ${FALSE}
-Americano 16 Players Without Final      16         ${FALSE}
+*** Test Cases ***                                      PLAYERS    FINAL ROUND    EXTRA ROUNDS    NAMES
+Americano 4 Players With Final                          4          ${TRUE}
+Americano 8 Players With Final                          8          ${TRUE}
+Americano 12 Players With Final                         12         ${TRUE}
+Americano 16 Players With Final                         16         ${TRUE}
+Americano 4 Players Without Final                       4          ${FALSE}
+Americano 8 Players Without Final                       8          ${FALSE}
+Americano 12 Players Without Final                      12         ${FALSE}
+Americano 16 Players Without Final                      16         ${FALSE}
 Americano Random Players 3 Extra Rounds With Final      RANDOM     ${TRUE}        3
 Americano Random Players 3 Extra Rounds Without Final   RANDOM     ${FALSE}       3
+Americano 8 Players Finnish Names With Final            8          ${TRUE}        0               names=${TRUE}
+Americano Random Players Finnish Names 3 Extra Rounds   RANDOM     ${TRUE}        3               names=${TRUE}
+
+Americano 12 Players With Final Demo
+    [tags]          demo
+    [template]      Play Americano Tournament
+    players=12      play_final=${TRUE}    names=${TRUE}
 
 
 *** Keywords ***
 Play Americano Tournament
     [Documentation]    Full flow for one tournament size. PLAYERS can be RANDOM (4, 8, 12 or 16).
     ...    EXTRA ROUNDS are played after the scheduled rounds with "Continue playing".
-    [Arguments]    ${players}    ${play_final}    ${extra_rounds}=0
+    ...    NAMES=${TRUE} enters shuffled names from @{FINNISH_NAMES}; by default the app's
+    ...    default names "Player 1" ... "Player N" are used.
+    [Arguments]    ${players}    ${play_final}    ${extra_rounds}=0    ${names}=${FALSE}
     ${extra_rounds}=    Convert To Integer    ${extra_rounds}
     IF    $players == 'RANDOM'
         ${players}=    Evaluate    str(random.choice([4, 8, 12, 16]))    modules=random
         Set Test Documentation    Randomly selected number of players: ${players}
     END
-    Log    Players: ${players}, extra rounds: ${extra_rounds}, final round: ${play_final}
+    Log    Players: ${players}, extra rounds: ${extra_rounds}, final round: ${play_final}, names: ${names}
     ${rounds}=    Evaluate    ${players} - 1
     ${points}=    Get From Dictionary    ${POINTS_TO_PLAY}    ${players}
     Select Number Of Players    ${players}
     Select Points To Play    ${points}
+    IF    ${names}
+        ${player_names}=    Set Player Names    ${players}
+    END
     Generate Schedule
+    IF    ${names}
+        Verify Player Names    ${player_names}
+    END
     ${score_rows}=    Play Regular Rounds    ${rounds}    ${points}
     IF    ${extra_rounds} > 0
         ${extra_rows}=    Play Extra Rounds    ${rounds}    ${extra_rounds}    ${points}
@@ -86,7 +104,8 @@ Play Americano Tournament
 Open Americano App
     ${url}=    Evaluate    pathlib.Path(r'''${APP_FILE}''').as_uri()    modules=pathlib
     Open Browser    ${url}    ${BROWSER}
-    Maximize Browser Window
+    #Maximize Browser Window
+    Set Window Size     1240     1024
     Set Selenium Timeout    ${TIMEOUT}
     # The app keeps the tournament in localStorage; start every test from the setup page.
     Execute Javascript    window.localStorage.clear();
@@ -103,8 +122,33 @@ Select Points To Play
     Input Text    ${POINTS_INPUT}    ${points}
     Textfield Value Should Be    ${POINTS_INPUT}    ${points}
 
+Set Player Names
+    [Documentation]    Shuffles @{FINNISH_NAMES} and types the first ${players} names into the
+    ...    player fields. Returns the names that were entered.
+    [Arguments]    ${players}
+    ${shuffled}=    Evaluate    random.sample($FINNISH_NAMES, k=len($FINNISH_NAMES))    modules=random
+    ${selected}=    Get Slice From List    ${shuffled}    0    ${players}
+    FOR    ${i}    ${name}    IN ENUMERATE    @{selected}
+        Input Text    css:input[data-player="${i}"]    ${name}
+        Textfield Value Should Be    css:input[data-player="${i}"]    ${name}
+    END
+    Log Many    Player names:    @{selected}
+    RETURN    ${selected}
+
+Verify Player Names
+    [Documentation]    The standings list exactly the names that were entered.
+    [Arguments]    ${expected}
+    ${cells}=    Get WebElements    xpath:${STANDINGS_ROWS}/td[2]
+    ${actual}=    Create List
+    FOR    ${cell}    IN    @{cells}
+        ${text}=    Get Text    ${cell}
+        Append To List    ${actual}    ${text}
+    END
+    Lists Should Be Equal    ${actual}    ${expected}    ignore_order=${TRUE}
+    ...    msg=Player names in the tournament differ from the entered names
+
 Generate Schedule
-    # Player names are left empty, so the app uses its defaults "Player 1" ... "Player N".
+    # Without names=${TRUE} the player fields are left empty, so the app uses "Player 1" ... "Player N".
     Click Button    ${GENERATE_BUTTON}
     Wait Until Element Is Visible    ${MATCH_ROWS}
 
@@ -189,7 +233,8 @@ Get Pair Names
     [Documentation]    Returns the two names of a pair cell ("Player 1 & Player 2") as a list.
     [Arguments]    ${locator}
     ${text}=    Get Text    ${locator}
-    @{names}=    Split String    ${text}    ${SPACE}&${SPACE}
+    # The scoring view shows the names on one line or two (one name per line), so split on "&" with any whitespace.
+    @{names}=    Evaluate    [n.strip() for n in $text.split('&')]
     RETURN    ${names}
 
 Format Match Row

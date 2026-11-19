@@ -1,10 +1,11 @@
-# Padel Americano
+# Americano App
 
 Match scheduler and score keeper for Padel Americano tournaments. Plain HTML/CSS/JS with no build step and no dependencies.
 
 ## Run
 
 Open `index.html` in a browser. All data is saved in the browser's `localStorage`, so a page reload keeps the tournament.
+**Clear saved data** at the bottom of the standings deletes the saved tournament after a confirmation and returns to the setup page.
 
 ## Features
 
@@ -45,8 +46,11 @@ Open `index.html` in a browser. All data is saved in the browser's `localStorage
 ## Robot Framework tests
 
 `americano.robot` plays a full tournament in Chrome for 4, 8, 12 and 16 players, each with and without the final round (8 tests).
-Two more tests pick the number of players at random and play 3 extra rounds ("Continue playing") after the schedule, one with and one without the final (10 tests in total).
+Two more tests pick the number of players at random and play 3 extra rounds ("Continue playing") after the schedule, one with and one without the final (12 tests in total, see below).
 The randomly selected player count is shown as the test's documentation in the log and report.
+By default the tests use the app's default player names (Player 1 … Player N).
+With the optional template argument `names=${TRUE}` a test shuffles the `@{FINNISH_NAMES}` list, enters the first N names and checks that the tournament uses exactly those names.
+Two tests do this: `Americano 8 Players Finnish Names With Final` and `Americano Random Players Finnish Names 3 Extra Rounds`.
 Each test:
 
 - enters random scores for one pair per match and checks that the app fills in the other pair's score
