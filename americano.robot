@@ -15,6 +15,7 @@ Test Template       Play Americano Tournament
 ${BROWSER}              chrome
 ${APP_FILE}             ${CURDIR}${/}index.html
 ${TIMEOUT}              5s
+${STORAGE_KEY}          americano-app-v1
 &{POINTS_TO_PLAY}       4=32    8=32    12=20    16=16
 
 # Locators
@@ -24,6 +25,7 @@ ${NEXT_ROUND_BUTTON}    id:next-round
 ${START_FINAL_BUTTON}   id:start-final
 ${END_BUTTON}           id:end-tournament
 ${CONTINUE_BUTTON}      id:continue
+${CLEAR_DATA_BUTTON}    id:clear-storage
 ${MATCH_ROWS}           //table[contains(@class,'match-table')]/tbody/tr
 ${STANDINGS_ROWS}       //table[contains(@class,'standings')]/tbody/tr
 ${ROUND_BLOCKS}         //div[contains(@class,'round-block')]
@@ -46,10 +48,22 @@ Americano Random Players 3 Extra Rounds Without Final   RANDOM     ${FALSE}     
 Americano 8 Players Finnish Names With Final            8          ${TRUE}        0               names=${TRUE}
 Americano Random Players Finnish Names 3 Extra Rounds   RANDOM     ${TRUE}        3               names=${TRUE}
 
-Americano 12 Players With Final Demo
+Americano 12 Demo
     [tags]          demo
     [template]      Play Americano Tournament
     players=12      play_final=${TRUE}    names=${TRUE}
+
+
+Check Local localStorage
+    [tags]          local
+    [template]      Check localStorage Content
+    players=4       play_final=${TRUE}    names=${TRUE}
+
+Simple localStorage
+    [tags]          s
+    [template]      Simple localStorage Content
+    players=4       play_final=${TRUE}    names=${TRUE}
+
 
 
 *** Keywords ***
@@ -100,6 +114,8 @@ Play Americano Tournament
     IF    ${extra_rounds} > 0
         Verify Extra Rounds Repeat Schedule    ${detail_rows}    ${players}    ${extra_rounds}
     END
+    # The actual number of players (useful when PLAYERS was RANDOM).
+    RETURN    ${players}
 
 Open Americano App
     ${url}=    Evaluate    pathlib.Path(r'''${APP_FILE}''').as_uri()    modules=pathlib
@@ -401,3 +417,79 @@ Verify Players Have Met Every Opponent Twice
         Should Be Equal As Integers    ${count}    2    msg=${key} met ${count} times as opponents, expected 2
     END
     Log Many    Opponent pairs (each exactly twice):    @{opponents.keys()}
+
+Check localStorage Content
+    [Documentation]     Plays a tournament (same arguments as Play Americano Tournament), then
+    ...                 reads the tournament the app saved in the browser's localStorage and 
+    ...                 checks its content.
+    [Arguments]         ${players}    ${play_final}    ${extra_rounds}=0    ${names}=${FALSE}
+    ${extra_rounds}=    Convert To Integer    ${extra_rounds}
+    ${players}=         Play Americano Tournament    ${players}    ${play_final}    ${extra_rounds}    names=${names}
+    ${raw}=    Execute Javascript    return window.localStorage.getItem('${STORAGE_KEY}');
+    Should Not Be Equal    ${raw}    ${None}    msg=No tournament saved in localStorage under '${STORAGE_KEY}'
+    ${state}=           Evaluate    json.loads($raw)    modules=json
+    ${pretty}=          Evaluate    json.dumps($state, indent=2, ensure_ascii=False)    modules=json
+    Log                 ${pretty}
+
+    # Settings and players
+    ${points}=    Get From Dictionary    ${POINTS_TO_PLAY}    ${players}
+    Should Be Equal As Integers    ${state}[version]    1
+    Should Be Equal As Integers    ${state}[n]    ${players}
+    Should Be Equal As Integers    ${state}[points]    ${points}
+    Should Be True    ${state}[ended]    msg=Tournament is not marked as ended
+    Length Should Be    ${state}[players]    ${players}
+    IF    ${names}
+        List Should Contain Sub List    ${FINNISH_NAMES}    ${state}[players]
+        ...    msg=Saved player names are not from FINNISH_NAMES
+    ELSE
+        ${default_names}=    Evaluate    ['Player %d' % (i + 1) for i in range(${players})]
+        Lists Should Be Equal    ${state}[players]    ${default_names}
+    END
+
+    # Rounds: n-1 scheduled + extra rounds + optional final
+    ${expected_rounds}=    Evaluate    ${players} - 1 + ${extra_rounds} + (1 if ${play_final} else 0)
+    Length Should Be    ${state}[rounds]    ${expected_rounds}
+    ${kinds}=    Evaluate    [r['kind'] for r in $state['rounds']]
+    IF    ${play_final}
+        Should Be Equal    ${kinds}[-1]    final    msg=Last saved round is not the final
+    ELSE
+        List Should Not Contain Value    ${kinds}    final
+    END
+    ${extra_saved}=    Evaluate    sum(1 for r in $state['rounds'] if r.get('extra'))
+    Should Be Equal As Integers    ${extra_saved}    ${extra_rounds}
+
+    # Every match has a score and the two scores add up to the points per match
+    ${bad}=    Evaluate    [(ri + 1, mi + 1, m['sa'], m['sb']) for ri, r in enumerate($state['rounds']) for mi, m in enumerate(r['matches'] or []) if m['sa'] is None or m['sb'] is None or m['sa'] + m['sb'] != ${points}]
+    Should Be Empty    ${bad}    msg=Saved matches with missing or wrong scores (round, match, sa, sb): ${bad}
+
+    # Clear saved data: confirm the question, then localStorage must be empty
+    Click Button    ${CLEAR_DATA_BUTTON}
+    ${question}=    Handle Alert    ACCEPT
+    Should Start With    ${question}    Are you sure you want to clear the saved data?
+    Wait Until Element Is Visible    ${GENERATE_BUTTON}
+    ${saved}=    Execute Javascript    return window.localStorage.getItem('${STORAGE_KEY}');
+    Should Be Equal    ${saved}    ${None}    msg=Tournament is still saved in localStorage
+    ${length}=    Execute Javascript    return window.localStorage.length;
+    Should Be Equal As Integers    ${length}    0    msg=localStorage is not empty
+
+
+Simple localStorage Content
+    [Documentation]     Plays a tournament (same arguments as Play Americano Tournament), then
+    ...                 reads the tournament the app saved in the browser's localStorage. 
+
+    [Arguments]         ${players}    ${play_final}    ${extra_rounds}=0    ${names}=${FALSE}
+
+    ${extra_rounds}=    Convert To Integer    ${extra_rounds}
+    ${players}=         Play Americano Tournament    ${players}    ${play_final}    ${extra_rounds}    names=${names}
+
+    Read localStorage
+
+
+Read localStorage
+    [Documentation]     Read localStorage
+    ${raw}=             Execute Javascript    return window.localStorage.getItem('${STORAGE_KEY}');
+    Should Not Be Equal    ${raw}    ${None}    msg=No tournament saved in localStorage under '${STORAGE_KEY}'
+    ${state}=           Evaluate    json.loads($raw)    modules=json
+    ${pretty}=          Evaluate    json.dumps($state, indent=2, ensure_ascii=False)    modules=json
+    Log                 ${raw}
+    Log                 ${pretty}

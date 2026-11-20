@@ -48,9 +48,8 @@
   /** Value for a name field: default names are left empty so they show as the placeholder. */
   function customName(name, def) { return name && name !== def ? name : ''; }
   const playerName = i => state.players[i];
-  const pairName = pair => `${esc(playerName(pair[0]))}<span class="amp"> &amp; </span>${esc(playerName(pair[1]))}`;
   /**
-   * Pair for the scoring table: both names on one line when they fit, otherwise one name per
+   * Pair for the match tables: both names on one line when they fit, otherwise one name per
    * line; a name longer than the column is cut with an ellipsis (full pair in the tooltip).
    */
   const pairNames = pair => `<div class="pair-names" title="${esc(playerName(pair[0]) + ' & ' + playerName(pair[1]))}">
@@ -505,16 +504,19 @@
         const bCls = m.sb > m.sa ? 'win' : m.sb < m.sa ? 'loss' : '';
         return `<tr>
             <td class="court">${esc(state.courts[m.court])}</td>
-            <td class="pair ${aCls}">${pairName(m.a)}</td>
+            <td class="pair ${aCls}">${pairNames(m.a)}</td>
             <td class="scores result-score">${m.sa}<span class="dash">–</span>${m.sb}</td>
-            <td class="pair right ${bCls}">${pairName(m.b)}</td>
+            <td class="pair right ${bCls}">${pairNames(m.b)}</td>
           </tr>`;
       }).join('');
       if (!rows) return '';
       const extra = r.extra ? '<span class="badge">Extra round</span>' : '';
       return `<div class="round-block">
           <div class="round-title"><h3>${roundLabel(i)}</h3>${extra}</div>
-          <table class="match-table"><tbody>${rows}</tbody></table>
+          <table class="match-table scoring results">
+            <colgroup><col class="col-court"><col><col class="col-scores"><col></colgroup>
+            <tbody>${rows}</tbody>
+          </table>
         </div>`;
     }).join('');
 

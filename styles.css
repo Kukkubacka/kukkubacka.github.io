@@ -195,6 +195,7 @@ tr:last-child td { border-bottom: 0; }
 .match-table.scoring { table-layout: fixed; }
 .match-table.scoring .col-court { width: 84px; }
 .match-table.scoring .col-scores { width: 144px; }
+.match-table.results .col-scores { width: 84px; } /* "15–17" as text, no input fields */
 .match-table.scoring .court { overflow: hidden; text-overflow: ellipsis; }
 .pair-names { display: flex; flex-wrap: wrap; column-gap: 0.35em; min-width: 0; }
 .pair.right .pair-names { justify-content: flex-end; }
