@@ -247,12 +247,12 @@ tr:last-child td { border-bottom: 0; }
 /* ---------- results ---------- */
 .result-score { font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
 .podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; align-items: end; }
-.podium-place { text-align: center; border-radius: 8px; padding: 10px 6px; background: var(--surface-2); }
-.podium-place.p1 { background: var(--podium-1); color: var(--podium-1-text); padding: 16px 6px; order: 2; }
+.podium-place { min-width: 0; text-align: center; border-radius: 8px; padding: 10px 6px; background: var(--surface-2); }
+.podium-place.p1 { background: var(--podium-1); color: var(--podium-1-text); padding: 22px 6px; order: 2; }
 .podium-place.p2 { background: var(--podium-2); color: var(--podium-2-text); order: 1; }
 .podium-place.p3 { background: var(--podium-3); color: var(--podium-3-text); order: 3; }
 .podium-rank { font-size: 0.8rem; font-weight: 600; opacity: 0.8; }
-.podium-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+.podium-name { font-weight: 700; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one line, cut with … so all boxes keep their height */
 .podium-pts { font-size: 0.85rem; }
 
 /* Tooltips on the standings headers (Pts, M, W-D-L, +/-). */

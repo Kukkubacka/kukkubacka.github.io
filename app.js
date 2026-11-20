@@ -494,7 +494,7 @@
     const podium = rank.slice(0, 3).map((s, k) => `
         <div class="podium-place p${k + 1}">
           <div class="podium-rank">${['1st', '2nd', '3rd'][k]}</div>
-          <div class="podium-name">${esc(s.name)}</div>
+          <div class="podium-name" title="${esc(s.name)}">${esc(s.name)}</div>
           <div class="podium-pts">${s.pf} pts</div>
         </div>`).join('');
 
