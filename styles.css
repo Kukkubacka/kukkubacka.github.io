@@ -47,6 +47,18 @@
   }
 }
 
+/* Mexicano: red backgrounds instead of green (body gets .mode-mexicano from app.js). */
+body.mode-mexicano {
+  --bg: #c4574f;
+  --header-bg: #a53f38;
+}
+@media (prefers-color-scheme: dark) {
+  body.mode-mexicano {
+    --bg: #1e1010;
+    --header-bg: #140909;
+  }
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -69,6 +81,13 @@ button, input { font: inherit; color: inherit; }
   border-bottom: 1px solid var(--border);
 }
 .topbar h1 { margin: 0; font-size: 1.25rem; letter-spacing: -0.01em; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.tournament-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.tournament-name { font-weight: 600; font-size: 1.05rem; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mode-badge {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--text);
+}
 .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 main { max-width: 1400px; margin: 0 auto; padding: 20px; }
@@ -105,6 +124,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .field-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label, .field .label { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.field-wide { flex: 1 1 260px; max-width: 420px; }
+.setup .field-row + .field-row { margin-top: 16px; }
 
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .segmented button {
@@ -286,14 +307,25 @@ tr:last-child td { border-bottom: 0; }
 .tip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 
 @media print {
+  /* No page margin leaves the browser no room for its own header and footer (page address with
+     the full file path, title, date). The margin is added back as padding, repeated on every page. */
+  @page { margin: 0; }
+  body {
+    padding: 12mm 14mm;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
   .tip { border-bottom: 0; }
   .tip::after { display: none; }
   .storage-actions { display: none; }
   .topbar-actions { display: none; }
   body { background: #fff; color: #000; }
-  .layout { display: block; }
+  /* One column, Final results / Standings (podium + table) first, then the games. */
+  .layout { display: flex; flex-direction: column; align-items: stretch; }
   .card { box-shadow: none; border: 0; padding: 0 0 16px; }
-  .standings-col { position: static; }
+  .standings-col { position: static; order: -1; }
+  .pairs-col { break-before: page; } /* games start on a new page after the results */
+  .standings th, .standings td { padding-top: 5px; padding-bottom: 5px; } /* 16 players + note fit on page 1 */
   .round-block { break-inside: avoid; }
 }
 

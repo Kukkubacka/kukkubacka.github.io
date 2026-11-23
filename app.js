@@ -1,4 +1,4 @@
-/* Padel Americano – match scheduler and score keeper.
+/* Padel Americano / Mexicano – match scheduler and score keeper.
  * Plain browser JavaScript, no build step. State is kept in localStorage.
  */
 (function () {
@@ -9,14 +9,21 @@
   const DEFAULT_POINTS = { 4: 32, 8: 32, 12: 20, 16: 16 };
   const MAX_PLAYERS = 16;
   const MAX_COURTS = 4;
-  /** Final round pairings within each group of four in the ranking (indices 0..3 = places 1..4). */
+  const MODES = { americano: 'Americano', mexicano: 'Mexicano' };
+  const DEFAULT_MODE = 'americano';
+  /**
+   * Pair selection within each group of four in the ranking (indices 0..3 = places 1..4).
+   * Americano uses it for the final round, Mexicano for every round.
+   */
   const FINAL_ORDERS = {
     '14-23': { a: [0, 3], b: [1, 2], label: '1 & 4 vs 2 & 3', notice: '1 + 4 vs 2 + 3, 5 + 8 vs 6 + 7' },
     '13-24': { a: [0, 2], b: [1, 3], label: '1 & 3 vs 2 & 4', notice: '1 + 3 vs 2 + 4, 5 + 7 vs 6 + 8' },
   };
   const DEFAULT_FINAL_ORDER = '14-23';
-  /** Final order of the tournament; tournaments saved before the option existed use the default. */
+  /** Pair selection of the tournament; tournaments saved before the option existed use the default. */
   const finalOrder = () => FINAL_ORDERS[state.finalOrder] || FINAL_ORDERS[DEFAULT_FINAL_ORDER];
+  /** Tournaments saved before the mode option existed are Americano. */
+  const isMexicano = () => !!state && state.mode === 'mexicano';
 
   /** Persistent tournament state (null when no tournament has been started). */
   let state = load();
@@ -65,10 +72,12 @@
     return a;
   }
 
-  /** Setup form with default values (8 players, default points, shuffle on, empty names). */
+  /** Setup form with default values (Americano, 8 players, default points, shuffle on, empty names). */
   function newDraft() {
     const n = 8;
     return {
+      name: '',
+      mode: DEFAULT_MODE,
       n,
       points: DEFAULT_POINTS[n],
       shuffle: true,
@@ -79,19 +88,28 @@
   }
 
   // ------------------------------------------------------------------ tournament model
+  /**
+   * Americano: the n-1 rounds come from the pre-computed schedule.
+   * Mexicano: every round is paired from the standings (see computeFinal); round 1, with no
+   * scores yet, follows the player order (shuffled when chosen), kept in `seed`.
+   */
   function startTournament(d) {
     const n = d.n;
     const slotToPlayer = d.shuffle ? shuffled(n) : [...Array(n).keys()];
-    const template = buildRegularRounds(n, slotToPlayer);
-    if (!verifySchedule(n, template)) throw new Error('Schedule verification failed');
+    const mexicano = d.mode === 'mexicano';
+    const template = mexicano ? null : buildRegularRounds(n, slotToPlayer);
+    if (template && !verifySchedule(n, template)) throw new Error('Schedule verification failed');
     state = {
       version: 1,
+      name: cleanName(d.name),
+      mode: mexicano ? 'mexicano' : 'americano',
+      seed: mexicano ? slotToPlayer : undefined,
       n,
       points: d.points,
       finalOrder: d.finalOrder,
       players: d.players.slice(0, n).map((p, i) => effectivePlayerName(p, i)),
       courts: d.courts.slice(0, n / 4).map((c, i) => c.trim() || defaultCourtName(i)),
-      template, // the n-1 regular rounds; re-used when play continues
+      template, // Americano: the n-1 regular rounds; re-used when play continues
       rounds: [],
       ended: false,
     };
@@ -105,6 +123,11 @@
    */
   function appendRegularRound() {
     const played = state.rounds.filter(r => r.kind === 'regular').length;
+    // Mexicano: no fixed matches; the round is paired from the standings (ranked).
+    if (isMexicano()) {
+      state.rounds.push({ kind: 'regular', ranked: true, no: played + 1, extra: played >= state.n - 1, matches: null });
+      return;
+    }
     const k = played % state.template.length;
     state.rounds.push({
       kind: 'regular',
@@ -121,6 +144,8 @@
   }
 
   const hasFinal = () => state.rounds.some(r => r.kind === 'final');
+  /** Rounds paired from the standings: the final, and every Mexicano round. */
+  const isRanked = r => r.kind === 'final' || !!r.ranked;
 
   const matchDone = m => m.sa !== null && m.sb !== null;
   const roundDone = i => !!state.rounds[i].matches && state.rounds[i].matches.every(matchDone);
@@ -132,7 +157,7 @@
     return -1;
   }
 
-  /** Matches of a round; for an unfrozen final they are computed from the standings. */
+  /** Matches of a round; for an unfrozen ranked round they are computed from the standings. */
   function roundMatches(i) {
     const r = state.rounds[i];
     return r.matches || computeFinal(i);
@@ -156,15 +181,19 @@
     return stats;
   }
 
-  /** Ranking: points, then wins, then point difference, then original order. */
+  /**
+   * Ranking: points, then wins, then point difference, then original order
+   * (in Mexicano the starting order, so round 1 follows the shuffled player order).
+   */
   function ranking(upto) {
+    const order = i => (state.seed ? state.seed.indexOf(i) : i);
     return computeStats(upto).sort((x, y) =>
-      (y.pf - x.pf) || (y.w - x.w) || ((y.pf - y.pa) - (x.pf - x.pa)) || (x.i - y.i));
+      (y.pf - x.pf) || (y.w - x.w) || ((y.pf - y.pa) - (x.pf - x.pa)) || (order(x.i) - order(y.i)));
   }
 
   /**
-   * Final round: per group of four in the ranking, either 1+4 vs 2+3 (5+8 vs 6+7, ...)
-   * or 1+3 vs 2+4 (5+7 vs 6+8, ...), as chosen in the setup.
+   * Ranked round (final, and every Mexicano round): per group of four in the ranking, either
+   * 1+4 vs 2+3 (5+8 vs 6+7, ...) or 1+3 vs 2+4 (5+7 vs 6+8, ...), as chosen in the setup.
    */
   function computeFinal(i) {
     const rank = ranking(i).map(s => s.i);
@@ -177,7 +206,7 @@
     return matches;
   }
 
-  const canEnterScores = i => state.rounds[i].kind !== 'final' || !!state.rounds[i].matches || allBeforeDone(i);
+  const canEnterScores = i => !isRanked(state.rounds[i]) || !!state.rounds[i].matches || allBeforeDone(i);
 
   /** Parses a score; returns an integer 0..points, null for empty, or NaN when invalid. */
   function parseScore(text) {
@@ -190,7 +219,7 @@
 
   function setScore(ri, mi, side, value) {
     const r = state.rounds[ri];
-    if (!r.matches) r.matches = computeFinal(ri); // freeze final pairings on first entry
+    if (!r.matches) r.matches = computeFinal(ri); // freeze ranked pairings on first entry
     const m = r.matches[mi];
     if (value === null) {
       m.sa = m.sb = null;
@@ -199,8 +228,8 @@
     } else {
       m.sb = value; m.sa = state.points - value;
     }
-    // An untouched final follows the standings again.
-    if (r.kind === 'final' && r.matches.every(x => x.sa === null)) r.matches = null;
+    // An untouched ranked round follows the standings again.
+    if (isRanked(r) && r.matches.every(x => x.sa === null)) r.matches = null;
     save();
   }
 
@@ -225,6 +254,7 @@
     const wasScore = !!(active && active.classList && active.classList.contains('score'));
 
     renderTopbar();
+    renderTitle();
     if (ui.mode === 'play') (state.ended ? renderResults : renderPlay)(); else renderSetup();
 
     if (focusKey) {
@@ -236,6 +266,23 @@
       const first = app.querySelector('.score:not(:disabled)');
       if (first && first.value === '') first.focus();
     }
+  }
+
+  /**
+   * Tournament name and mode next to the app name, in the tab title, and the page theme:
+   * Mexicano has red backgrounds (also while Mexicano is selected in the setup).
+   */
+  function renderTitle() {
+    const fromDraft = ui.mode !== 'play' || !state;
+    const name = fromDraft ? (ui.draft ? cleanName(ui.draft.name) : '') : state.name || '';
+    const mode = fromDraft ? (ui.draft ? ui.draft.mode : DEFAULT_MODE) : state.mode || DEFAULT_MODE;
+    document.body.classList.toggle('mode-mexicano', mode === 'mexicano');
+    const el = document.getElementById('tournament-title');
+    if (el) {
+      el.innerHTML = `${name ? `<span class="tournament-name" title="${esc(name)}">${esc(name)}</span>` : ''}
+        <span class="mode-badge">${MODES[mode]}</span>`;
+    }
+    document.title = name ? `${name} – Padel App` : 'Padel App';
   }
 
   function renderTopbar() {
@@ -260,12 +307,37 @@
     const d = ui.draft;
     const editing = ui.mode === 'edit';
     const pointsLocked = editing && anyScores();
-    const orderLocked = editing && hasFinal();
+    const mexicano = d.mode === 'mexicano';
+    // Americano: the pair selection is used for the final only, so it can change until the final
+    // starts. Mexicano: it pairs every round, so it is fixed once the first score is entered.
+    const orderLocked = editing && (mexicano ? anyScores() : hasFinal());
+    const orderLockedMsg = mexicano
+      ? 'The pair selection cannot be changed after scores have been entered'
+      : 'The pair selection cannot be changed after the final round has been started';
     const courts = d.n / 4;
+    const hint = mexicano
+      ? `${d.n - 1} rounds + final round. Round 1 follows the player order; every later round is paired
+          from the current standings (${FINAL_ORDERS[d.finalOrder].notice}, …).`
+      : `${d.n - 1} rounds + final round. Every player partners every other player exactly once
+          and meets every opponent exactly twice.`;
 
     app.innerHTML = `
       <section class="card setup">
-        <h2>${editing ? 'Edit tournament' : 'New Americano tournament'}</h2>
+        <h2>${editing ? 'Edit tournament' : 'New tournament'}</h2>
+        <div class="field-row">
+          <div class="field field-wide">
+            <label for="tournament-name">Tournament name</label>
+            <input id="tournament-name" class="text-input" maxlength="60" placeholder="e.g. Friday Padel"
+              value="${esc(d.name)}" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="label">Playing mode</span>
+            <div class="segmented" role="group" aria-label="Playing mode">
+              ${Object.entries(MODES).map(([key, label]) => `<button type="button" data-action="mode" data-mode="${key}"
+                  class="${key === d.mode ? 'active' : ''}" ${editing ? 'disabled title="The playing mode cannot be changed after the tournament has started"' : ''}>${label}</button>`).join('')}
+            </div>
+          </div>
+        </div>
         <div class="field-row">
           <div class="field">
             <span class="label">Players</span>
@@ -280,18 +352,17 @@
               ${pointsLocked ? 'disabled title="Points cannot be changed after scores have been entered"' : ''}>
           </div>
           <div class="field">
-            <span class="label">Final round</span>
-            <div class="segmented" role="group" aria-label="Final round pairings">
+            <span class="label">Pair selection${mexicano ? ' (every round)' : ' (final round)'}</span>
+            <div class="segmented" role="group" aria-label="Pair selection">
               ${Object.entries(FINAL_ORDERS).map(([key, o]) => `<button type="button" data-action="final-order" data-order="${key}"
-                  class="${key === d.finalOrder ? 'active' : ''}" ${orderLocked ? 'disabled title="The final round order cannot be changed after the final round has been started"' : ''}>${o.label}</button>`).join('')}
+                  class="${key === d.finalOrder ? 'active' : ''}" ${orderLocked ? `disabled title="${orderLockedMsg}"` : ''}>${o.label}</button>`).join('')}
             </div>
           </div>
           <div class="field"><span class="label">Courts</span><div class="static-value">${courts}</div></div>
           ${editing ? '' : `
           <label class="checkbox"><input type="checkbox" id="shuffle" ${d.shuffle ? 'checked' : ''}> Shuffle players randomly</label>`}
         </div>
-        <p class="hint">${d.n - 1} rounds + final round. Every player partners every other player exactly once
-          and meets every opponent exactly twice.</p>
+        <p class="hint">${hint}</p>
 
         <h3>Players</h3>
         <div class="name-grid">
@@ -318,6 +389,8 @@
     updateNameValidation();
   }
 
+  /** Trimmed, single spaces. */
+  const cleanName = t => String(t || '').trim().replace(/\s+/g, ' ');
   /** Name as used in the tournament: trimmed, single spaces, empty -> default name. */
   const effectivePlayerName = (p, i) => p.trim().replace(/\s+/g, ' ') || defaultPlayerName(i);
 
@@ -430,7 +503,7 @@
     }
     return done ? wrap(`
         ${endBtn}
-        <button class="btn" id="continue" data-action="continue">Continue playing (restart from round 1)</button>
+        <button class="btn" id="continue" data-action="continue">Continue playing${isMexicano() ? '' : ' (restart from round 1)'}</button>
         <button class="btn primary" id="start-final" data-action="start-final">Start final round →</button>`) : '';
   }
 
@@ -452,12 +525,14 @@
     const matches = roundMatches(i);
     const editable = canEnterScores(i);
     const badge = statusBadge(i, cur);
-    const cycle = r.extra ? `<span class="badge">Extra round · schedule round ${r.no}</span>` : '';
+    const cycle = r.extra
+      ? `<span class="badge">Extra round${isMexicano() ? '' : ` · schedule round ${r.no}`}</span>` : '';
     let notice = '';
-    if (r.kind === 'final' && !r.matches) {
+    if (isRanked(r) && !r.matches) {
+      const what = r.kind === 'final' ? 'Final pairings' : 'Pairings';
       notice = editable
-        ? `<p class="notice">Final pairings from the standings: ${finalOrder().notice}, … They are fixed once the first score is entered.</p>`
-        : '<p class="notice">Provisional pairings – the final is set from the standings once all previous rounds are complete.</p>';
+        ? `<p class="notice">${what} from the standings: ${finalOrder().notice}, … They are fixed once the first score is entered.</p>`
+        : '<p class="notice">Provisional pairings – this round is set from the standings once all previous rounds are complete.</p>';
     }
 
     const rows = matches.map((m, mi) => {
@@ -579,6 +654,10 @@
         ui.draft.finalOrder = btn.dataset.order;
         render();
         break;
+      case 'mode':
+        ui.draft.mode = btn.dataset.mode;
+        render();
+        break;
       case 'count': {
         const n = +btn.dataset.n;
         ui.draft.n = n;
@@ -597,6 +676,7 @@
       }
       case 'edit':
         ui.draft = {
+          name: state.name || '', mode: state.mode || DEFAULT_MODE,
           n: state.n, points: state.points, shuffle: false, finalOrder: state.finalOrder || DEFAULT_FINAL_ORDER,
           players: Array.from({ length: MAX_PLAYERS }, (_, i) => customName(state.players[i], defaultPlayerName(i))),
           courts: Array.from({ length: MAX_COURTS }, (_, i) => customName(state.courts[i], defaultCourtName(i))),
@@ -609,8 +689,9 @@
         if (err) { document.getElementById('setup-error').textContent = err; return; }
         state.players = ui.draft.players.slice(0, state.n).map((p, i) => effectivePlayerName(p, i));
         state.courts = ui.draft.courts.slice(0, state.n / 4).map((c, i) => c.trim() || defaultCourtName(i));
+        state.name = cleanName(ui.draft.name);
         if (!anyScores()) state.points = ui.draft.points;
-        if (!hasFinal()) state.finalOrder = ui.draft.finalOrder;
+        if (isMexicano() ? !anyScores() : !hasFinal()) state.finalOrder = ui.draft.finalOrder;
         save();
         ui.mode = 'play';
         render();
@@ -696,6 +777,7 @@
       if (t.dataset.player !== undefined) { ui.draft.players[+t.dataset.player] = t.value; updateNameValidation(); }
       else if (t.dataset.court !== undefined) ui.draft.courts[+t.dataset.court] = t.value;
       else if (t.id === 'points') ui.draft.points = t.value;
+      else if (t.id === 'tournament-name') { ui.draft.name = t.value; renderTitle(); }
       else if (t.id === 'shuffle') ui.draft.shuffle = t.checked;
       return;
     }
@@ -800,6 +882,43 @@
       const btn = app.querySelector('.btn.primary');
       if (btn) btn.click();
     }
+  });
+
+  // ---- print / save as PDF: browsers suggest the page title as the PDF file name, so while
+  // printing the title becomes e.g. "Friday Padel - Mexicano results 2026-11-23".
+  // Characters that are not allowed in file names are replaced.
+  let titleBeforePrint = null;
+  function printTitle() {
+    const now = new Date();
+    const pad = v => String(v).padStart(2, '0');
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    if (!state || ui.mode !== 'play') return `Padel App ${date}`;
+    const what = state.ended ? 'results' : 'standings';
+    const title = `${state.name ? state.name + ' - ' : ''}${MODES[state.mode || DEFAULT_MODE]} ${what} ${date}`;
+    return toFileName(title);
+  }
+  /**
+   * Plain ASCII file name: Nordic and other accented letters lose their accents (ä → a, å → a,
+   * ø → o, æ → ae), emojis and other non-ASCII characters are removed, and characters not
+   * allowed in file names become " - ".
+   */
+  function toFileName(text) {
+    const special = { 'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'Ae', 'ß': 'ss', 'đ': 'd', 'Đ': 'D', 'ł': 'l', 'Ł': 'L', '–': '-', '—': '-' };
+    return text
+      .replace(/[øØæÆßđĐłŁ–—]/g, c => special[c])
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // ä -> a + combining mark -> a
+      .replace(/[^\x20-\x7e]/g, '')                     // emojis and anything else non-ASCII
+      .replace(/\s*[\\/:*?"<>|]+\s*/g, ' - ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s.-]+|[\s.-]+$/g, '') || 'Padel App';
+  }
+  window.addEventListener('beforeprint', () => {
+    titleBeforePrint = document.title;
+    document.title = printTitle();
+  });
+  window.addEventListener('afterprint', () => {
+    if (titleBeforePrint !== null) document.title = titleBeforePrint;
+    titleBeforePrint = null;
   });
 
   render();

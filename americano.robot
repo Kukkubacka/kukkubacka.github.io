@@ -6,7 +6,7 @@ Documentation       Padel Americano: plays a full tournament for 4, 8, 12 and 16
 Library             SeleniumLibrary
 Library             Collections
 Library             String
-Test Setup          Open Americano App
+Test Setup          Open Padel App
 Test Teardown       Close Browser
 Test Template       Play Americano Tournament
 
@@ -29,6 +29,13 @@ ${CLEAR_DATA_BUTTON}    id:clear-storage
 ${MATCH_ROWS}           //table[contains(@class,'match-table')]/tbody/tr
 ${STANDINGS_ROWS}       //table[contains(@class,'standings')]/tbody/tr
 ${ROUND_BLOCKS}         //div[contains(@class,'round-block')]
+${TOURNAMENT_NAME}      id:tournament-name
+${EDIT_BUTTON}          xpath://header//button[@data-action='edit']
+${BACK_BUTTON}          xpath://header//button[@data-action='cancel-edit']
+${PAIR_SELECTION}       xpath://button[@data-action='final-order']
+${MODE_BUTTONS}         xpath://button[@data-action='mode']
+# Pair selection: positions (0 = 1st) of each group of four in the standings that form pair A and pair B.
+&{PAIRINGS}             14-23=[[0, 3], [1, 2]]    13-24=[[0, 2], [1, 3]]
 @{FINNISH_NAMES}=       Juhani    Mikael    Antti     Ville
 ...                     Juho      Pekka     Oskari    Eero
 ...                     Laura     Maria     Anna      Emilia
@@ -47,6 +54,32 @@ Americano Random Players 3 Extra Rounds With Final      RANDOM     ${TRUE}      
 Americano Random Players 3 Extra Rounds Without Final   RANDOM     ${FALSE}       3
 Americano 8 Players Finnish Names With Final            8          ${TRUE}        0               names=${TRUE}
 Americano Random Players Finnish Names 3 Extra Rounds   RANDOM     ${TRUE}        3               names=${TRUE}
+Americano 8 Players Final 1&3 vs 2&4 With Name          8          ${TRUE}        0               pairing=13-24    tournament=Pääsiäis Padel
+Americano Random Players 1&3 vs 2&4 2 Extra Rounds      RANDOM     ${TRUE}        2               pairing=13-24
+
+Mexicano 4 Players With Final
+    [Template]    Play Mexicano Tournament
+    players=4     play_final=${TRUE}
+
+Mexicano 8 Players With Final
+    [Template]    Play Mexicano Tournament
+    players=8     play_final=${TRUE}    tournament=Friday Mexicano
+
+Mexicano 12 Players Without Final
+    [Template]    Play Mexicano Tournament
+    players=12    play_final=${FALSE}
+
+Mexicano 16 Players With Final 1&3 vs 2&4
+    [Template]    Play Mexicano Tournament
+    players=16    play_final=${TRUE}    pairing=13-24
+
+Mexicano 8 Players 1&3 vs 2&4 Finnish Names
+    [Template]    Play Mexicano Tournament
+    players=8     play_final=${TRUE}    pairing=13-24    names=${TRUE}    tournament=Torstai Padel
+
+Mexicano Random Players 3 Extra Rounds With Final
+    [Template]    Play Mexicano Tournament
+    players=RANDOM    play_final=${TRUE}    extra_rounds=3
 
 Americano 12 Demo
     [tags]          demo
@@ -72,31 +105,24 @@ Play Americano Tournament
     ...    EXTRA ROUNDS are played after the scheduled rounds with "Continue playing".
     ...    NAMES=${TRUE} enters shuffled names from @{FINNISH_NAMES}; by default the app's
     ...    default names "Player 1" ... "Player N" are used.
+    ...    PAIRING is the pair selection of the final round: 14-23 (1 & 4 vs 2 & 3, default)
+    ...    or 13-24 (1 & 3 vs 2 & 4). TOURNAMENT is an optional tournament name.
     [Arguments]    ${players}    ${play_final}    ${extra_rounds}=0    ${names}=${FALSE}
+    ...    ${pairing}=14-23    ${tournament}=${EMPTY}
     ${extra_rounds}=    Convert To Integer    ${extra_rounds}
-    IF    $players == 'RANDOM'
-        ${players}=    Evaluate    str(random.choice([4, 8, 12, 16]))    modules=random
-        Set Test Documentation    Randomly selected number of players: ${players}
-    END
-    Log    Players: ${players}, extra rounds: ${extra_rounds}, final round: ${play_final}, names: ${names}
+    ${players}=    Resolve Players    ${players}
+    Log    Players: ${players}, extra rounds: ${extra_rounds}, final round: ${play_final}, names: ${names}, pairing: ${pairing}
     ${rounds}=    Evaluate    ${players} - 1
-    ${points}=    Get From Dictionary    ${POINTS_TO_PLAY}    ${players}
-    Select Number Of Players    ${players}
-    Select Points To Play    ${points}
-    IF    ${names}
-        ${player_names}=    Set Player Names    ${players}
-    END
-    Generate Schedule
-    IF    ${names}
-        Verify Player Names    ${player_names}
-    END
+    ${points}=    Set Up Tournament    americano    ${players}    ${pairing}    ${tournament}    ${names}
     ${score_rows}=    Play Regular Rounds    ${rounds}    ${points}
     IF    ${extra_rounds} > 0
         ${extra_rows}=    Play Extra Rounds    ${rounds}    ${extra_rounds}    ${points}
         ${score_rows}=    Combine Lists    ${score_rows}    ${extra_rows}
     END
     IF    ${play_final}
-        ${final_rows}=    Play Final Round    ${rounds + ${extra_rounds}}    ${points}
+        # Americano: the pair selection can be changed until the final round is started.
+        Verify Edit Tournament Locks    pairing_locked=${FALSE}
+        ${final_rows}=    Play Final Round    ${rounds + ${extra_rounds}}    ${points}    ${pairing}
         ${score_rows}=    Combine Lists    ${score_rows}    ${final_rows}
     END
     ${total_rounds}=    Evaluate    ${rounds} + ${extra_rounds} + (1 if ${play_final} else 0)
@@ -114,10 +140,169 @@ Play Americano Tournament
     IF    ${extra_rounds} > 0
         Verify Extra Rounds Repeat Schedule    ${detail_rows}    ${players}    ${extra_rounds}
     END
+    Verify Tournament Title    ${tournament}    americano
     # The actual number of players (useful when PLAYERS was RANDOM).
     RETURN    ${players}
 
-Open Americano App
+Play Mexicano Tournament
+    [Documentation]    Mexicano: every round is paired from the current standings with the chosen
+    ...    pair selection (PAIRING 14-23 = 1 & 4 vs 2 & 3, 13-24 = 1 & 3 vs 2 & 4); round 1 follows
+    ...    the (shuffled) player order. Before the first score of every round the pairings are
+    ...    checked against the standings. Arguments as in Play Americano Tournament.
+    [Arguments]    ${players}    ${play_final}    ${extra_rounds}=0    ${names}=${FALSE}
+    ...    ${pairing}=14-23    ${tournament}=${EMPTY}
+    ${extra_rounds}=    Convert To Integer    ${extra_rounds}
+    ${players}=    Resolve Players    ${players}
+    Log    Mexicano players: ${players}, extra rounds: ${extra_rounds}, final round: ${play_final}, names: ${names}, pairing: ${pairing}
+    ${rounds}=    Evaluate    ${players} - 1
+    ${points}=    Set Up Tournament    mexicano    ${players}    ${pairing}    ${tournament}    ${names}
+    # Mexicano: the pair selection can be changed until the first score is entered.
+    Verify Edit Tournament Locks    pairing_locked=${FALSE}
+    ${score_rows}=    Play Regular Rounds    ${rounds}    ${points}    ${pairing}
+    Verify Edit Tournament Locks    pairing_locked=${TRUE}
+    IF    ${extra_rounds} > 0
+        ${extra_rows}=    Play Extra Rounds    ${rounds}    ${extra_rounds}    ${points}    ${pairing}
+        ${score_rows}=    Combine Lists    ${score_rows}    ${extra_rows}
+    END
+    IF    ${play_final}
+        ${final_rows}=    Play Final Round    ${rounds + ${extra_rounds}}    ${points}    ${pairing}
+        ${score_rows}=    Combine Lists    ${score_rows}    ${final_rows}
+    END
+    ${total_rounds}=    Evaluate    ${rounds} + ${extra_rounds} + (1 if ${play_final} else 0)
+    ${result_rows}=    Check Results    ${players}    ${points}    ${total_rounds}
+    View Details
+    ${detail_rows}=    Read Details Table
+    Capture Page Screenshot    mexicano-${players}-${play_final}-${extra_rounds}.png
+    Log Many    @{score_rows}
+    Log Many    @{result_rows}
+    ${blocks}=    Get Element Count    ${ROUND_BLOCKS}
+    Should Be Equal As Integers    ${blocks}    ${total_rounds}    msg=Played games do not show every round
+    Verify Every Player Plays Once Per Round    ${detail_rows}    ${players}
+    Verify Tournament Title    ${tournament}    mexicano
+    RETURN    ${players}
+
+Resolve Players
+    [Documentation]    RANDOM -> 4, 8, 12 or 16 (written to the test documentation).
+    [Arguments]    ${players}
+    IF    $players == 'RANDOM'
+        ${players}=    Evaluate    str(random.choice([4, 8, 12, 16]))    modules=random
+        Set Test Documentation    Randomly selected number of players: ${players}
+    END
+    RETURN    ${players}
+
+Set Up Tournament
+    [Documentation]    Fills the setup page and generates the schedule. Returns the points per match.
+    [Arguments]    ${mode}    ${players}    ${pairing}    ${tournament}    ${names}
+    Select Playing Mode    ${mode}
+    Select Number Of Players    ${players}
+    ${points}=    Get From Dictionary    ${POINTS_TO_PLAY}    ${players}
+    Select Points To Play    ${points}
+    Select Pair Selection    ${pairing}
+    IF    $tournament
+        Input Text    ${TOURNAMENT_NAME}    ${tournament}
+    END
+    IF    ${names}
+        ${player_names}=    Set Player Names    ${players}
+    END
+    Generate Schedule
+    Verify Tournament Title    ${tournament}    ${mode}
+    IF    ${names}
+        Verify Player Names    ${player_names}
+    END
+    RETURN    ${points}
+
+Select Playing Mode
+    [Arguments]    ${mode}
+    Click Button    xpath://button[@data-action='mode' and @data-mode='${mode}']
+    Wait Until Element Is Visible    xpath://button[@data-action='mode' and @data-mode='${mode}' and contains(@class,'active')]
+
+Select Pair Selection
+    [Arguments]    ${pairing}
+    Click Button    xpath://button[@data-action='final-order' and @data-order='${pairing}']
+    Wait Until Element Is Visible    xpath://button[@data-action='final-order' and @data-order='${pairing}' and contains(@class,'active')]
+
+Verify Tournament Title
+    [Documentation]    Tournament name and mode badge next to the app name, browser tab title,
+    ...    and the red Mexicano theme.
+    [Arguments]    ${tournament}    ${mode}
+    # The badge is shown in capitals by CSS (text-transform), so compare case-insensitively.
+    Element Text Should Be    css:#tournament-title .mode-badge    ${mode}    ignore_case=${TRUE}
+    IF    $tournament
+        Element Text Should Be    css:#tournament-title .tournament-name    ${tournament}
+        Title Should Be    ${tournament} – Padel App
+    ELSE
+        Page Should Not Contain Element    css:#tournament-title .tournament-name
+        Title Should Be    Padel App
+    END
+    ${red}=    Execute Javascript    return document.body.classList.contains('mode-mexicano');
+    Should Be Equal    ${red}    ${{ $mode == 'mexicano' }}    msg=Mexicano theme is wrong for mode ${mode}
+
+Verify Edit Tournament Locks
+    [Documentation]    Opens "Edit names": the playing mode is always locked, the pair selection
+    ...    only when PAIRING_LOCKED. Returns to the tournament.
+    [Arguments]    ${pairing_locked}
+    Click Button    ${EDIT_BUTTON}
+    Wait Until Page Contains    Edit tournament
+    ${buttons}=    Get WebElements    ${MODE_BUTTONS}
+    FOR    ${button}    IN    @{buttons}
+        Element Should Be Disabled    ${button}
+    END
+    ${buttons}=    Get WebElements    ${PAIR_SELECTION}
+    FOR    ${button}    IN    @{buttons}
+        IF    ${pairing_locked}
+            Element Should Be Disabled    ${button}
+        ELSE
+            Element Should Be Enabled    ${button}
+        END
+    END
+    Click Button    ${BACK_BUTTON}
+    Wait Until Element Is Visible    ${MATCH_ROWS}
+
+Get Standings Names
+    [Documentation]    Player names in standings order.
+    ${cells}=    Get WebElements    xpath:${STANDINGS_ROWS}/td[2]
+    ${names}=    Create List
+    FOR    ${cell}    IN    @{cells}
+        ${text}=    Get Text    ${cell}
+        Append To List    ${names}    ${text}
+    END
+    RETURN    ${names}
+
+Verify Pairings Follow Standings
+    [Documentation]    Before the first score of a ranked round (Mexicano round or final round):
+    ...    court k plays standings group k (places 4k+1 ... 4k+4) with the chosen pair selection.
+    [Arguments]    ${pairing}
+    ${standings}=    Get Standings Names
+    ${positions}=    Evaluate    json.loads($PAIRINGS[$pairing])    modules=json
+    ${match_count}=    Get Element Count    ${MATCH_ROWS}
+    FOR    ${m}    IN RANGE    ${match_count}
+        ${row}=    Set Variable    (${MATCH_ROWS})[${m + 1}]
+        ${pair_a}=    Get Pair Names    ${row}/td[contains(@class,'pair')][1]
+        ${pair_b}=    Get Pair Names    ${row}/td[contains(@class,'pair')][2]
+        ${expected_a}=    Evaluate    [$standings[4 * ${m} + k] for k in $positions[0]]
+        ${expected_b}=    Evaluate    [$standings[4 * ${m} + k] for k in $positions[1]]
+        Lists Should Be Equal    ${pair_a}    ${expected_a}
+        ...    msg=Court ${m + 1} left pair does not follow the standings (${pairing})
+        Lists Should Be Equal    ${pair_b}    ${expected_b}
+        ...    msg=Court ${m + 1} right pair does not follow the standings (${pairing})
+    END
+    Log    Pairings follow the standings (${pairing}): ${standings}
+
+Verify Every Player Plays Once Per Round
+    [Arguments]    ${detail_rows}    ${players}
+    ${round_names}=    Evaluate    sorted({line.split('|')[0] for line in $detail_rows})
+    FOR    ${round}    IN    @{round_names}
+        ${names}=    Create List
+        FOR    ${line}    IN    @{detail_rows}
+            @{f}=    Split String    ${line}    |
+            IF    $f[0] == $round    Append To List    ${names}    ${f}[2]    ${f}[3]    ${f}[6]    ${f}[7]
+        END
+        ${unique}=    Evaluate    set($names)
+        Length Should Be    ${names}    ${players}    msg=${round}: wrong number of players
+        Length Should Be    ${unique}    ${players}    msg=${round}: a player plays more than once
+    END
+
+Open Padel App
     ${url}=    Evaluate    pathlib.Path(r'''${APP_FILE}''').as_uri()    modules=pathlib
     Open Browser    ${url}    ${BROWSER}
     #Maximize Browser Window
@@ -171,9 +356,11 @@ Generate Schedule
 Play Regular Rounds
     [Documentation]    Fills random scores for every match of every regular round.
     ...    Returns one formatted row per match.
-    [Arguments]    ${rounds}    ${points}
+    ...    With PAIRING (Mexicano) the pairings are checked against the standings first.
+    [Arguments]    ${rounds}    ${points}    ${pairing}=${NONE}
     ${rows}=    Create List
     FOR    ${r}    IN RANGE    ${rounds}
+        IF    $pairing    Verify Pairings Follow Standings    ${pairing}
         ${round_rows}=    Enter Random Scores For Round    ${r}    Round:${r + 1}    ${points}
         Append To List    ${rows}    @{round_rows}
         # The last regular round has "Start final round" / "Continue" instead of "Next round".
@@ -187,7 +374,7 @@ Play Regular Rounds
 Play Extra Rounds
     [Documentation]    After the last scheduled round: "Continue playing" starts the first extra
     ...    round, "Next extra round" the following ones. Extra rounds repeat the schedule from round 1.
-    [Arguments]    ${rounds}    ${extra_rounds}    ${points}
+    [Arguments]    ${rounds}    ${extra_rounds}    ${points}    ${pairing}=${NONE}
     ${rows}=    Create List
     FOR    ${e}    IN RANGE    ${extra_rounds}
         ${round_index}=    Evaluate    ${rounds} + ${e}
@@ -197,16 +384,23 @@ Play Extra Rounds
             Click Button    ${NEXT_ROUND_BUTTON}
         END
         Wait Until Page Contains Element    css:input.score[data-r="${round_index}"]
+        IF    $pairing    Verify Pairings Follow Standings    ${pairing}
         ${round_rows}=    Enter Random Scores For Round    ${round_index}    Round:${round_index + 1}    ${points}
         Append To List    ${rows}    @{round_rows}
     END
     RETURN    ${rows}
 
 Play Final Round
-    [Arguments]    ${round_index}    ${points}
+    [Documentation]    The final is paired from the standings with the chosen PAIRING. Once it has
+    ...    started the pair selection is locked (in Mexicano it already is after the first score).
+    [Arguments]    ${round_index}    ${points}    ${pairing}=14-23
     Wait Until Element Is Enabled    ${START_FINAL_BUTTON}
     Click Button    ${START_FINAL_BUTTON}
     Wait Until Page Contains Element    css:input.score[data-r="${round_index}"]
+    Verify Edit Tournament Locks    pairing_locked=${TRUE}
+    Wait Until Page Contains Element    css:input.score[data-r="${round_index}"]
+    Verify Pairings Follow Standings    ${pairing}
+
     ${rows}=    Enter Random Scores For Round    ${round_index}    Round:Final    ${points}
     RETURN    ${rows}
 
@@ -240,9 +434,12 @@ Enter Random Scores For Round
 Commit Score
     [Documentation]    Leaving a score field makes the app redraw the round. Blur the field and
     ...    wait until the old DOM is gone, so later lookups never hit stale elements.
+    # Fallback: if the field had already lost focus, no redraw happens - trigger it with a change event.
     Execute Javascript
     ...    document.querySelectorAll('.round-block').forEach(b => b.setAttribute('data-old', '1'));
     ...    document.activeElement.blur();
+    ...    setTimeout(() => { const s = document.querySelector('.round-block[data-old] input.score');
+    ...    if (s) s.dispatchEvent(new Event('change', { bubbles: true })); }, 300);
     Wait Until Page Does Not Contain Element    css:.round-block[data-old]
 
 Get Pair Names
