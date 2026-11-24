@@ -1,6 +1,8 @@
 :root {
   --bg: #55a57d;
-  --header-bg: #39945d;
+  /* Header (top bar): background and text */
+  --header-bg: #269647;
+  --header-text: #b63939;
   --surface: #ffffff;
   --surface-2: #eef2f0;
   --text: #17201c;
@@ -27,6 +29,7 @@
   :root {
     --bg: #111614;
     --header-bg: #0a0d0c;
+    --header-text: #e7eeea;
     --surface: #1a211e;
     --surface-2: #222b27;
     --text: #e7eeea;
@@ -51,11 +54,13 @@
 body.mode-mexicano {
   --bg: #c4574f;
   --header-bg: #a53f38;
+  --header-text: #88cab0;
 }
 @media (prefers-color-scheme: dark) {
   body.mode-mexicano {
     --bg: #1e1010;
     --header-bg: #140909;
+    --header-text: #e7eeea;
   }
 }
 
@@ -80,6 +85,8 @@ button, input { font: inherit; color: inherit; }
   background: var(--header-bg);
   border-bottom: 1px solid var(--border);
 }
+/* --header-text colors only the application name and the tournament name. */
+.topbar h1, .topbar .tournament-name { color: var(--header-text); }
 .topbar h1 { margin: 0; font-size: 1.25rem; letter-spacing: -0.01em; }
 .brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .tournament-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -173,6 +180,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 @media (max-width: 960px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .standings-col { position: static; }
+  /* Ended tournament: the final results come first when the columns are stacked. */
+  .results-layout .standings-col { order: -1; }
 }
 
 .pairs-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -319,6 +328,8 @@ tr:last-child td { border-bottom: 0; }
   .tip::after { display: none; }
   .storage-actions { display: none; }
   .topbar-actions { display: none; }
+  .topbar { background: #fff; } /* readable even with a light --header-text */
+  .topbar h1, .topbar .tournament-name { color: #000; }
   body { background: #fff; color: #000; }
   /* One column, Final results / Standings (podium + table) first, then the games. */
   .layout { display: flex; flex-direction: column; align-items: stretch; }

@@ -596,7 +596,7 @@
     }).join('');
 
     app.innerHTML = `
-      <div class="layout">
+      <div class="layout results-layout">
         <section class="card pairs-col">
           <h2>Played games</h2>
           ${games}
