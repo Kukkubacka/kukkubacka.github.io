@@ -206,7 +206,18 @@
     return matches;
   }
 
-  const canEnterScores = i => !isRanked(state.rounds[i]) || !!state.rounds[i].matches || allBeforeDone(i);
+  /** A round that has some scores but is not complete yet. */
+  const roundStarted = i => !!state.rounds[i].matches && state.rounds[i].matches.some(m => m.sa !== null) && !roundDone(i);
+  /** Index of the round being scored (started, not complete) other than round i, or -1. */
+  const otherRoundInProgress = i => state.rounds.findIndex((_, k) => k !== i && roundStarted(k));
+
+  /**
+   * Scores can be entered when no other round is half-finished (once a round's first score is in,
+   * that round must be completed before any other round can be scored) and, for ranked rounds,
+   * when every earlier round is complete.
+   */
+  const canEnterScores = i => otherRoundInProgress(i) === -1
+    && (!isRanked(state.rounds[i]) || !!state.rounds[i].matches || allBeforeDone(i));
 
   /** Parses a score; returns an integer 0..points, null for empty, or NaN when invalid. */
   function parseScore(text) {
@@ -338,13 +349,15 @@
             </div>
           </div>
         </div>
-        <div class="field-row">
+        <div class="field-row align-top">
           <div class="field">
             <span class="label">Players</span>
             <div class="segmented" role="group" aria-label="Number of players">
               ${PLAYER_COUNTS.map(n => `<button type="button" data-action="count" data-n="${n}"
                   class="${n === d.n ? 'active' : ''}" ${editing ? 'disabled' : ''}>${n}</button>`).join('')}
             </div>
+            ${editing ? '' : `
+            <label class="checkbox"><input type="checkbox" id="shuffle" ${d.shuffle ? 'checked' : ''}> Shuffle players randomly</label>`}
           </div>
           <div class="field">
             <label for="points">Points per match</label>
@@ -359,8 +372,6 @@
             </div>
           </div>
           <div class="field"><span class="label">Courts</span><div class="static-value">${courts}</div></div>
-          ${editing ? '' : `
-          <label class="checkbox"><input type="checkbox" id="shuffle" ${d.shuffle ? 'checked' : ''}> Shuffle players randomly</label>`}
         </div>
         <p class="hint">${hint}</p>
 
@@ -474,37 +485,57 @@
 
   /**
    * Buttons under a round. They appear as soon as every match of the round has a valid score:
-   *  - a round followed by another round:   "Next round"
-   *  - last scheduled round:                "Continue playing" or "Start final round"
-   *  - last extra round:                    "Next extra round" or "Start final round"
-   *    ("Start final round" is shown in every extra round, enabled once the round is complete)
-   *  - final round:                         "End tournament"
+   *  - rounds still unplayed:               "Next round: <next unplayed round>"
+   *  - every round played (whichever round was completed last, so also when the rounds were
+   *    played out of order):
+   *      after the scheduled rounds:        "Continue playing" or "Start final round"
+   *      after an extra round:              "Next extra round" or "Start final round"
+   *      after the final:                   "End tournament"
+   *  - the last extra round, not complete:  "Start final round" (disabled) with a hint
    * Every completed round also offers "End tournament", so play can be stopped at any time.
+   * After "Back to scoring" on the results page it is called "Save" (returns to the results)
+   * until play continues with a new round or the final.
    */
   function roundActions(i) {
     const r = state.rounds[i];
     const done = roundDone(i);
-    const isLast = i === state.rounds.length - 1;
+    const last = state.rounds.length - 1;
+    const lastRound = state.rounds[last];
+    const open = currentRoundIndex(); // first unplayed round, -1 when every round is played
     const wrap = (inner, hint) => `<div class="actions">${hint ? `<span class="hint actions-hint">${hint}</span>` : ''}${inner}</div>`;
-    const endBtn = '<button class="btn" id="end-tournament" data-action="end-tournament">End tournament</button>';
+    // Reopened with "Back to scoring": the tournament was already ended, so the button saves the
+    // corrections and returns to the results.
+    const endLabel = state.reopened ? 'Save' : 'End tournament';
+    const endTitle = state.reopened ? ' title="Save the changes and return to the results"' : '';
+    const endBtn = `<button class="btn${state.reopened ? ' primary' : ''}" id="end-tournament" data-action="end-tournament"${endTitle}>${endLabel}</button>`;
+    // While reopened, "Save" is the main button; the others are shown as normal buttons.
+    const main = state.reopened ? 'btn' : 'btn primary';
 
-    if (r.kind === 'final') {
-      return done ? wrap('<button class="btn primary" id="end-tournament" data-action="end-tournament">End tournament</button>') : '';
+    if (!done) {
+      return i === last && r.extra
+        ? wrap('<button class="btn primary" id="start-final" data-action="start-final" disabled>Start final round</button>',
+          'Enter all scores of this round to start the final.')
+        : '';
     }
-    if (!isLast) {
-      return done ? wrap(`${endBtn}<button class="btn primary" id="next-round" data-action="next-round">Next round: ${roundLabel(i + 1)} →</button>`) : '';
+    if (open !== -1) {
+      // Rounds still unplayed: go to the next one after this round (or the first one before it).
+      const next = state.rounds.findIndex((_, k) => k > i && !roundDone(k));
+      const target = next === -1 ? open : next;
+      return wrap(`${endBtn}<button class="${main}" id="next-round" data-action="next-round" data-r="${target}">Next round: ${roundLabel(target)} →</button>`);
     }
-    if (r.extra) {
+    if (lastRound.kind === 'final') {
+      return wrap(`<button class="btn primary" id="end-tournament" data-action="end-tournament"${endTitle}>${endLabel}</button>`);
+    }
+    if (lastRound.extra) {
       return wrap(`
-        ${done ? endBtn : ''}
-        ${done ? `<button class="btn" id="next-round" data-action="next-round">Next extra round →</button>` : ''}
-        <button class="btn primary" id="start-final" data-action="start-final" ${done ? '' : 'disabled'}>Start final round</button>`,
-        done ? '' : 'Enter all scores of this round to start the final.');
+        ${endBtn}
+        <button class="btn" id="next-round" data-action="next-round" data-r="${last + 1}">Next extra round →</button>
+        <button class="${main}" id="start-final" data-action="start-final">Start final round</button>`);
     }
-    return done ? wrap(`
+    return wrap(`
         ${endBtn}
         <button class="btn" id="continue" data-action="continue">Continue playing${isMexicano() ? '' : ' (restart from round 1)'}</button>
-        <button class="btn primary" id="start-final" data-action="start-final">Start final round →</button>`) : '';
+        <button class="${main}" id="start-final" data-action="start-final">Start final round →</button>`);
   }
 
   function roundNav(cur, sel) {
@@ -528,7 +559,11 @@
     const cycle = r.extra
       ? `<span class="badge">Extra round${isMexicano() ? '' : ` · schedule round ${r.no}`}</span>` : '';
     let notice = '';
-    if (isRanked(r) && !r.matches) {
+    const busy = otherRoundInProgress(i);
+    if (busy !== -1) {
+      notice = `<p class="notice">${esc(roundLabel(busy))} is being scored – finish it before entering scores here.
+        <button type="button" class="link-btn" data-action="select" data-r="${busy}">Go to ${esc(roundLabel(busy))}</button></p>`;
+    } else if (isRanked(r) && !r.matches) {
       const what = r.kind === 'final' ? 'Final pairings' : 'Pairings';
       notice = editable
         ? `<p class="notice">${what} from the standings: ${finalOrder().notice}, … They are fixed once the first score is entered.</p>`
@@ -539,7 +574,9 @@
       const done = matchDone(m);
       const aCls = done ? (m.sa > m.sb ? 'win' : m.sa < m.sb ? 'loss' : '') : '';
       const bCls = done ? (m.sb > m.sa ? 'win' : m.sb < m.sa ? 'loss' : '') : '';
-      const inp = (side, v) => `<input class="score" inputmode="numeric" autocomplete="off" maxlength="3"
+      // inputmode="none": tapping opens the score picker instead of the on-screen keyboard;
+      // a physical keyboard can still type the score.
+      const inp = (side, v) => `<input class="score" inputmode="none" autocomplete="off" maxlength="3"
           data-r="${i}" data-m="${mi}" data-s="${side}" data-key="${i}-${mi}-${side}"
           value="${v === null ? '' : v}" placeholder="–" ${editable ? '' : 'disabled'}
           aria-label="${esc(state.courts[m.court])}, score for ${side === 'a' ? 'left' : 'right'} pair">`;
@@ -711,31 +748,37 @@
         render();
         break;
       case 'next-round': {
-        const next = (ui.showAll ? state.rounds.length - 1 : displayedRound()) + 1;
-        if (next >= state.rounds.length) { appendRegularRound(); save(); }
+        // data-r: the round to go to; past the last round a new extra round is added.
+        const next = btn.dataset.r !== undefined ? +btn.dataset.r
+          : (ui.showAll ? state.rounds.length - 1 : displayedRound()) + 1;
+        if (next >= state.rounds.length) { appendRegularRound(); delete state.reopened; save(); }
         goToRound(next);
         break;
       }
       case 'continue':
         appendRegularRound();
+        delete state.reopened; // playing on: "End tournament" again instead of "Save"
         save();
         goToRound(state.rounds.length - 1);
         break;
       case 'start-final':
         if (!hasFinal() && allBeforeDone(state.rounds.length)) {
           appendFinalRound();
+          delete state.reopened;
           save();
           goToRound(state.rounds.length - 1);
         }
         break;
       case 'end-tournament':
         state.ended = true;
+        delete state.reopened;
         save();
         window.scrollTo(0, 0);
         render();
         break;
       case 'reopen':
         state.ended = false;
+        state.reopened = true; // the round buttons show "Save" instead of "End tournament"
         save();
         ui.selected = null;
         render();
@@ -784,6 +827,7 @@
     if (!t.classList.contains('score')) return;
 
     const ri = +t.dataset.r, mi = +t.dataset.m, side = t.dataset.s;
+    if (!canEnterScores(ri)) { scheduleRender(); return; } // another round is being scored
     const v = parseScore(t.value);
     const other = app.querySelector(`[data-key="${ri}-${mi}-${side === 'a' ? 'b' : 'a'}"]`);
     if (Number.isNaN(v)) {
@@ -822,6 +866,96 @@
   };
   document.addEventListener('pointerup', release, true);
   document.addEventListener('pointercancel', release, true);
+
+  // ---- score picker: clicking/tapping a score field opens a dialog with a button for every
+  // possible score (0 ... points). The other pair's score is filled in automatically.
+  let picker = null; // { ri, mi, side, returnFocus }
+
+  function openScorePicker(input) {
+    const ri = +input.dataset.r, mi = +input.dataset.m, side = input.dataset.s;
+    if (!canEnterScores(ri)) { render(); return; } // another round is being scored
+    const m = roundMatches(ri)[mi];
+    const current = side === 'a' ? m.sa : m.sb;
+    const own = side === 'a' ? m.a : m.b;
+    const opp = side === 'a' ? m.b : m.a;
+    const names = pair => pair.map(p => esc(state.players[p])).join(' &amp; ');
+    const buttons = Array.from({ length: state.points + 1 }, (_, v) => `
+        <button type="button" class="pick ${v * 2 === state.points ? 'draw' : v * 2 < state.points ? 'low' : 'high'} ${v === current ? 'active' : ''}" data-pick="${v}"
+          aria-label="${v} – ${state.points - v}">${v}<span class="pick-opp">${state.points - v}</span></button>`).join('');
+    input.blur();
+    closeScorePicker(false);
+    picker = { ri, mi, side, returnFocus: input.dataset.key };
+    const el = document.createElement('div');
+    el.className = 'modal-backdrop';
+    el.id = 'score-modal';
+    el.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="score-modal-title" tabindex="-1">
+        <div class="modal-head">
+          <h3 id="score-modal-title">${esc(roundLabel(ri))} · ${esc(state.courts[m.court])}</h3>
+          <button type="button" class="modal-close" data-pick-close aria-label="Close">×</button>
+        </div>
+        <p class="modal-pairs"><strong class="picked-team">${names(own)}</strong> <span class="vs">vs</span> ${names(opp)}</p>
+        <p class="hint">Points for <strong class="picked-team">${names(own)}</strong> · the other pair gets the rest of ${state.points}.</p>
+        <div class="score-grid">${buttons}</div>
+        <div class="modal-actions">
+          ${current !== null ? '<button type="button" class="btn danger" data-pick-clear>Clear score</button>' : ''}
+          <button type="button" class="btn" data-pick-close>Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    document.body.classList.add('modal-open');
+    // Focus the dialog itself (no button looks highlighted); Tab moves to the buttons.
+    el.querySelector('.modal').focus();
+  }
+
+  function closeScorePicker(restoreFocus = true) {
+    const el = document.getElementById('score-modal');
+    if (el) el.remove();
+    document.body.classList.remove('modal-open');
+    if (restoreFocus && picker) {
+      const input = app.querySelector(`[data-key="${picker.returnFocus}"]`);
+      if (input && !input.disabled) input.focus({ preventScroll: true });
+    }
+    picker = null;
+  }
+
+  function pickScore(v) {
+    const { ri, mi, side } = picker;
+    closeScorePicker(false);
+    // Stay on the round being scored; moving on is done with the "Next round" button.
+    if (!ui.showAll && ui.selected === null) ui.selected = ri;
+    setScore(ri, mi, side, v);
+    render();
+  }
+
+  document.addEventListener('click', e => {
+    const t = e.target;
+    if (picker) {
+      const pick = t.closest('[data-pick]');
+      if (pick) pickScore(+pick.dataset.pick);
+      else if (t.closest('[data-pick-clear]')) pickScore(null);
+      else if (t.closest('[data-pick-close]') || t.id === 'score-modal') closeScorePicker();
+      return;
+    }
+    if (ui.mode === 'play' && t.classList && t.classList.contains('score') && !t.disabled) openScorePicker(t);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (!picker) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeScorePicker(); return; }
+    if (e.key === 'Tab') {
+      // Keep the keyboard focus inside the dialog.
+      const items = [...document.querySelectorAll('#score-modal button')];
+      // From the dialog itself, Tab starts at the current score (or the first button).
+      const current = document.querySelector('#score-modal .pick.active') || document.querySelector('#score-modal .pick');
+      const i = document.activeElement.classList.contains('modal') && current
+        ? items.indexOf(current) - (e.shiftKey ? -1 : 1)
+        : items.indexOf(document.activeElement);
+      const next = e.shiftKey ? (i <= 0 ? items.length - 1 : i - 1) : (i === items.length - 1 ? 0 : i + 1);
+      e.preventDefault();
+      items[next].focus();
+    }
+  }, true);
 
   document.addEventListener('change', e => {
     if (ui.mode === 'play' && e.target.classList.contains('score')) scheduleRender();

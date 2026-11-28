@@ -16,6 +16,13 @@
   --warn-bg: #fff4d6;
   --warn-text: #6b4e00;
   --invalid: #c62828;
+  --picked-team: #c62828; /* score picker: the pair whose points are being picked */
+  --pick-draw: #9fd8b8;   /* score picker: the draw button (half of the points) */
+  --pick-draw-border: #5fb88a;
+  --pick-low: #f9dcd9;    /* score picker: scores below half of the points */
+  --pick-low-border: #eab3ad;
+  --pick-high: #ddf3e6;   /* score picker: scores above half of the points */
+  --pick-high-border: #b3dfc5;
   /* Podium: gold, silver, bronze (background + readable text color) */
   --podium-1: #f2c94c;  --podium-1-text: #3d2e00;
   --podium-2: #d5d9dc;  --podium-2-text: #1f2a30;
@@ -43,6 +50,13 @@
     --warn-bg: #3a3116;
     --warn-text: #f2d48a;
     --invalid: #ff6b6b;
+    --picked-team: #ff6b6b;
+    --pick-draw: #2a6247;
+    --pick-draw-border: #3d8a64;
+    --pick-low: #452322;
+    --pick-low-border: #6e3836;
+    --pick-high: #1c3529;
+    --pick-high-border: #2b4f3d;
     --podium-1: #8a6d12;  --podium-1-text: #fff6d6;
     --podium-2: #4a5258;  --podium-2-text: #eef2f4;
     --podium-3: #7a4a24;  --podium-3-text: #fbe9da;
@@ -113,6 +127,54 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 .btn.small { padding: 4px 10px; font-size: 0.9rem; }
 .btn.danger { color: var(--danger); border-color: var(--danger); }
+/* ---------- score picker (modal) ---------- */
+.score { cursor: pointer; }
+body.modal-open { overflow: hidden; }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgb(0 0 0 / 45%);
+}
+.modal {
+  width: 100%; max-width: 520px; max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--surface); color: var(--text);
+  border-radius: var(--radius); padding: 16px 18px 18px;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 30%);
+}
+.modal:focus { outline: none; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.modal-head h3 { margin: 0; font-size: 1.05rem; }
+.modal-close {
+  border: 0; background: none; font-size: 1.6rem; line-height: 1; padding: 2px 8px;
+  border-radius: 8px; cursor: pointer; color: var(--muted);
+}
+.modal-close:hover { background: var(--surface-2); }
+.modal-pairs { margin: 10px 0 2px; overflow-wrap: anywhere; }
+/* The pair whose points are being picked. */
+.picked-team { color: var(--picked-team); font-weight: 700; }
+.modal-pairs .vs { color: var(--muted); font-size: 0.9rem; margin: 0 4px; }
+.modal .hint { margin: 0 0 12px; }
+.score-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; }
+.pick {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 52px; padding: 4px 2px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.pick:hover { border-color: var(--accent); }
+/* Draw: both pairs get half of the points (only when the points are even). */
+.pick.draw { background: var(--pick-draw); border-color: var(--pick-draw-border); }
+/* Losing scores: less than half of the points. */
+.pick.low { background: var(--pick-low); border-color: var(--pick-low-border); }
+/* Winning scores: more than half of the points. */
+.pick.high { background: var(--pick-high); border-color: var(--pick-high-border); }
+.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pick.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+/* The other pair's score for this choice, e.g. 21 -> "– 11" below it. */
+.pick-opp { font-size: 0.72rem; font-weight: 500; opacity: 0.7; }
+.pick-opp::before { content: "– "; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
 .storage-actions { display: flex; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 
 /* ---------- cards ---------- */
@@ -129,6 +191,9 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 /* ---------- setup ---------- */
 .setup { max-width: 900px; margin: 0 auto; }
 .field-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-end; }
+/* Fields with something below their control (shuffle checkbox under Players): align by the labels. */
+.field-row.align-top { align-items: flex-start; }
+.field .checkbox { margin-top: 4px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label, .field .label { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
 .field-wide { flex: 1 1 260px; max-width: 420px; }
@@ -211,6 +276,10 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .badge.done { background: var(--accent-soft); color: var(--text); }
 
 .notice { background: var(--warn-bg); color: var(--warn-text); padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; margin: 0 0 10px; }
+.link-btn {
+  border: 0; background: none; padding: 0; margin-left: 4px; cursor: pointer;
+  color: inherit; font-weight: 700; text-decoration: underline;
+}
 
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
@@ -328,6 +397,7 @@ tr:last-child td { border-bottom: 0; }
   .tip::after { display: none; }
   .storage-actions { display: none; }
   .topbar-actions { display: none; }
+  .modal-backdrop { display: none; }
   .topbar { background: #fff; } /* readable even with a light --header-text */
   .topbar h1, .topbar .tournament-name { color: #000; }
   body { background: #fff; color: #000; }

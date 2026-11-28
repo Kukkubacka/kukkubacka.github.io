@@ -23,13 +23,18 @@ Open `index.html` in a browser. All data is saved in the browser's `localStorage
 - `n − 1` regular rounds. In Americano every player partners every other player **exactly once** and plays against every other player **exactly twice**.
 - Courts are assigned so that each player spreads their matches over the courts as evenly as the schedule allows.
 - Buttons appear under a round as soon as all of its scores are valid:
-  - **Next round** moves to the following round.
-  - After the last scheduled round you can choose **Continue playing** or **Start final round**.
+  - **Next round** moves to the next unplayed round.
+  - When every round has been played you can choose **Continue playing** or **Start final round**.
+    Rounds can be played in any order (pick a round from the round buttons); these buttons appear under whichever round is completed last.
+    Once a round's first score is entered, that round must be completed before scores can be entered in any other round
+    (the other rounds show a notice with a link back to it; clearing the round's scores unlocks them again).
     Continuing adds extra rounds; in Americano they repeat the schedule from round 1.
   - Every extra round has **Start final round**, enabled once that round is complete, and **Next extra round**.
   - **End tournament** is shown under every completed round, so the tournament can be stopped at any time.
     Games without a score are left out of the results.
   - After the final, **End tournament** shows the results: podium, final standings and every played game with its pairs and score.
+  - **Back to scoring** on the results page lets scores be corrected; the button is then called **Save** and returns to the results.
+    Continuing play (a new round or the final) makes it **End tournament** again.
     It also offers Print and Back to scoring.
 - The final round is built from the standings. The **Pair selection** in the setup sets how each group of four is paired
   (in Americano for the final round, in Mexicano for every round):
@@ -39,6 +44,7 @@ Open `index.html` in a browser. All data is saved in the browser's `localStorage
   It can be changed under **Edit names** until **Start final round** is pressed (Americano) or until the first score is entered (Mexicano).
   The final's players are fixed once the first final score is entered.
 - Enter the score for either pair; the other pair gets `points − score`. Anything that isn't a whole number from 0 to `points` is rejected.
+  Clicking or tapping a score field opens a score picker with a button for every score from 0 to `points` (each button also shows the other pair's score); **Clear score** empties the match, Esc or **Cancel** closes it. A keyboard can still type the score directly.
 - Pairings with score entry on the left, live standings on the right (points, matches, W-D-L, +/-).
   Ties in the standings are broken by wins, then point difference.
 
